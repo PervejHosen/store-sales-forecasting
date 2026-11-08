@@ -1,0 +1,157 @@
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="top-bar">
+      <a href="__HOME__#projects">← Pervej Hosen · Portfolio</a>
+      <a class="gh" href="__REPO__" target="_blank" rel="noopener">View code on GitHub ↗</a>
+    </div>
+    <div class="hero">
+      <p class="kicker">Case study · Forecasting · Python &amp; SQL</p>
+      <h1>Store Sales <span>Forecasting</span></h1>
+      <p>Store managers plan staff and stock six weeks ahead, so every forecast error turns into an empty shelf or a queue at the till. This project forecasts daily sales for <b id="heroStores"></b> drugstores six weeks ahead, tests four methods the way they would really be used, and shows where each one breaks.</p>
+      <div class="chips"><span>Python</span><span>SQL</span><span>DuckDB</span><span>LightGBM</span><span>Exponential smoothing</span><span>Backtesting</span><span>Prediction intervals</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="kpis" id="kpis"></div>
+
+  <section>
+    <h2>Key findings</h2>
+    <p class="lead" id="dataLead"></p>
+    <div class="findings" id="findings"></div>
+  </section>
+
+  <section>
+    <h2>What moves a store's sales</h2>
+    <p class="lead">Before modelling, the drivers. Each effect below is measured like for like: the same store, on the same weekday, in the same month, so one factor changes at a time.</p>
+    <div class="two">
+      <div class="card">
+        <h3>Average daily sales by weekday</h3>
+        <p class="sub">Per open store · promotions run Monday to Friday only</p>
+        <div class="legend"><span><i style="background:var(--s1)"></i>No promotion</span><span><i style="background:var(--s2)"></i>Promotion</span></div>
+        <div class="chart" id="weekday"></div>
+      </div>
+      <div class="card">
+        <h3>Sales lift from a promotion, by store format</h3>
+        <p class="sub">Like for like · and how much of it comes from more customers</p>
+        <div class="legend"><span><i style="background:var(--s2)"></i>Sales lift</span><span><i style="background:var(--s1)"></i>Customer lift</span></div>
+        <div class="chart" id="promoLift"></div>
+      </div>
+    </div>
+    <div class="two" style="margin-top:16px">
+      <div class="card">
+        <h3>When a competitor opens nearby</h3>
+        <p class="sub" id="compSub"></p>
+        <div class="chart" id="compEvent"></div>
+      </div>
+      <div class="card">
+        <h3>Weekly sales across the chain</h3>
+        <p class="sub" id="weeklySub"></p>
+        <div class="chart" id="weeklyChain"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Four ways to forecast, tested honestly</h2>
+    <p class="lead">Each method forecasts 6 weeks at a time, using only data from before the window starts, in four separate windows that include Christmas and Easter. This is how the forecast would be used for real, and it is the step most portfolio forecasts skip.</p>
+    <div class="ladder" id="ladder"></div>
+    <div class="two" style="margin-top:16px">
+      <div class="card">
+        <h3>Error in each test window</h3>
+        <p class="sub">WAPE: total absolute error as a share of actual sales · lower is better</p>
+        <div class="legend" id="foldLegend"></div>
+        <div class="chart" id="foldChart"></div>
+      </div>
+      <div class="card">
+        <h3>The scorecard</h3>
+        <p class="sub">All four windows pooled · <span id="scoredDays"></span> store-days</p>
+        <div class="scroll"><table id="scoreTable"></table></div>
+        <p class="note">RMSPE is the root mean square percentage error used in the original Kaggle competition. Bias above zero means the forecast runs high. "Off 15%+" is the share of store-days where a roster built on the forecast would clearly be wrong. "Weekly" is the WAPE on each store's weekly totals.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Forecast explorer</h2>
+    <p class="lead">Actual daily sales against the LightGBM forecast and its 80% range, for a typical store of each format and for the hardest store in the latest window.</p>
+    <div class="card">
+      <div class="explorer-bar">
+        <div class="seg-btns" id="storeBtns" role="tablist" aria-label="Store"></div>
+        <div class="seg-btns" id="foldBtns" role="tablist" aria-label="Test window"></div>
+      </div>
+      <div class="legend"><span><i style="background:var(--ink)"></i>Actual</span><span><i style="background:var(--s1)"></i>LightGBM forecast</span><span><i style="background:rgba(8,145,178,.18)"></i>80% range</span><span><i style="background:var(--s3)"></i>Planner average</span></div>
+      <div class="scroll" id="explorer"></div>
+      <p class="note" id="explorerNote"></p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where the forecast struggles</h2>
+    <p class="lead">An average error hides the days that hurt. Splitting the error by situation shows where a planner should still apply judgement.</p>
+    <div class="two">
+      <div class="card">
+        <h3>Error by situation</h3>
+        <p class="sub">WAPE · LightGBM vs the planner average</p>
+        <div class="legend"><span><i style="background:var(--s3)"></i>Planner average</span><span><i style="background:var(--s1)"></i>LightGBM</span></div>
+        <div class="chart" id="segChart"></div>
+      </div>
+      <div class="card">
+        <h3>How many stores get a usable forecast</h3>
+        <p class="sub" id="histSub"></p>
+        <div class="legend"><span><i style="background:var(--s3)"></i>Planner average</span><span><i style="background:var(--s1)"></i>LightGBM</span></div>
+        <div class="chart" id="storeHist"></div>
+      </div>
+    </div>
+    <div class="two" style="margin-top:16px">
+      <div class="card">
+        <h3>What the model relies on</h3>
+        <p class="sub">Share of the average contribution to each forecast (SHAP values), grouped</p>
+        <div class="chart" id="impact"></div>
+        <p class="note">Competition looks minor here even though an opening costs about 10% of sales: once a competitor has opened, the drop shows up in the store's recent sales level, which the model already uses.</p>
+      </div>
+      <div class="card">
+        <h3>Can the range be trusted?</h3>
+        <p class="sub">An 80% range should contain the actual value about 80% of the time</p>
+        <div class="chart" id="coverage"></div>
+        <p class="note" id="coverageNote"></p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What I would do with this</h2>
+    <p class="lead">A forecast only pays off once it changes a decision.</p>
+    <div class="actions" id="actions"></div>
+  </section>
+
+  <section>
+    <h2>How it was built</h2>
+    <p class="lead">SQL builds the features, Python runs the models, one command reruns everything (<code>python run.py</code>).</p>
+    <div class="pipe">
+      <div class="layer b"><h4>Bronze · raw</h4><p><span id="bronzeRows"></span> store-days and 1,115 store records, loaded as published.</p></div>
+      <div class="layer s"><h4>Silver · cleaned</h4><ul id="silverList"></ul></div>
+      <div class="layer g"><h4>Gold · features and insights</h4><ul><li>One row per store-day with 24 model features</li><li>Only facts known in advance, or values at least 42 days old</li><li>Insight tables: weekday, promotion, holiday and competitor effects</li></ul></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>The four methods</h3>
+      <p class="sub">Each one is a step up in effort, and each has to earn its place against the one before</p>
+      <div class="scroll"><table class="rules">
+        <tr><th>Method</th><th>How it forecasts</th><th>Uses promotions?</th></tr>
+        <tr><td>Seasonal naive</td><td>Same weekday 52 weeks earlier</td><td>No</td></tr>
+        <tr><td>Planner average</td><td>The store's average for that weekday over the last 12 weeks, split by promotion week. What a planner would build in a spreadsheet.</td><td>Yes</td></tr>
+        <tr><td>ETS</td><td>Exponential smoothing with a weekly season, fitted per store on the last year (statsforecast AutoETS)</td><td>No</td></tr>
+        <tr><td>LightGBM</td><td>One model for all stores, trained on log sales with calendar, promotion, holiday, refurbishment, competitor and store-history features. Two extra quantile models give the 80% range.</td><td>Yes</td></tr>
+      </table></div>
+      <p class="note">No leakage: every feature for a forecast day is either known in advance (the promotion calendar, public and school holidays, planned closures, store facts) or measured at least 42 days earlier, so the same features exist on the day the forecast is made. Test windows are never used for training or tuning.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>Data: <a href="https://www.kaggle.com/competitions/rossmann-store-sales" target="_blank" rel="noopener">Rossmann Store Sales</a> (Kaggle). Analysis by Pervej Hosen.</span>
+    <a href="__HOME__#projects">← Back to portfolio</a>
+  </footer>
+</main>
+<div id="tip" role="tooltip"></div>

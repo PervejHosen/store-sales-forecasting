@@ -1,0 +1,307 @@
+<script src="data.js"></script>
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const fmt = n => Math.round(n).toLocaleString("en-GB");
+  const eur = n => n >= 1e9 ? "€" + (n / 1e9).toFixed(2) + "bn" : n >= 1e6 ? "€" + (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? "€" + (n / 1e3).toFixed(1) + "k" : "€" + fmt(n);
+  const pct = (v, d = 1) => (100 * v).toFixed(d) + "%";
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const NS = "http://www.w3.org/2000/svg";
+  const dayName = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const dShort = iso => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const dLong = iso => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+  const tip = $("#tip");
+  const showTip = (e, html) => {
+    tip.innerHTML = html; tip.style.opacity = 1;
+    const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
+    const y = e.clientY + 16 + tip.offsetHeight > innerHeight ? e.clientY - tip.offsetHeight - 12 : e.clientY + 16;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  };
+  const hideTip = () => tip.style.opacity = 0;
+  const bindTip = (n, html) => { n.addEventListener("mousemove", e => showTip(e, html)); n.addEventListener("mouseleave", hideTip); n.addEventListener("touchstart", e => showTip(e.touches[0], html), { passive: true }); };
+  const svg = (w, h) => { const s = document.createElementNS(NS, "svg"); s.setAttribute("viewBox", `0 0 ${w} ${h}`); s.setAttribute("role", "img"); return s; };
+  const el = (name, attrs, parent, text) => { const n = document.createElementNS(NS, name); for (const k in attrs) n.setAttribute(k, attrs[k]); if (text != null) n.textContent = text; parent && parent.appendChild(n); return n; };
+  const niceMax = (v, step) => Math.ceil(v / step) * step;
+
+  const K = DATA.kpis, M = Object.fromEntries(DATA.overall.map(r => [r.model, r])), W = Object.fromEntries(DATA.weekly.map(r => [r.model, r]));
+  const MODELS = ["Seasonal naive", "Planner average", "ETS", "LightGBM"];
+  const COL = { "Seasonal naive": "var(--s4)", "Planner average": "var(--s3)", "ETS": "var(--s2)", "LightGBM": "var(--s1)" };
+  const lgb = M["LightGBM"], plan = M["Planner average"], naive = M["Seasonal naive"], etsM = M["ETS"];
+  const cut = 1 - lgb.wape / plan.wape;
+  const lift = DATA.gold_promo_lift.find(r => r.store_type === null);
+  const comp = DATA.gold_competitor_event, compAfter = comp.filter(r => r.period >= 1);
+  const compDrop = 100 - compAfter.reduce((a, r) => a + r.index_vs_before, 0) / compAfter.length;
+  const sh = DATA.gold_school_holiday[0];
+  const segBy = Object.fromEntries(DATA.segments.map(r => [r.segment, r.LightGBM]));
+
+  // ---------- header ----------
+  $("#heroStores").textContent = fmt(K.stores);
+  $("#bronzeRows").textContent = fmt(K.raw_rows);
+  $("#scoredDays").textContent = fmt(K.scored_days);
+  $("#dataLead").textContent = `Dataset: Rossmann Store Sales (Kaggle), ${fmt(K.raw_rows)} store-days from ${dLong(K.first_date)} to ${dLong(K.last_date)}, ${eur(K.total_sales)} in sales. Scored on ${fmt(K.scored_days)} open store-days across four 6-week test windows.`;
+  $("#kpis").innerHTML = [
+    [fmt(K.stores), "stores forecast 6 weeks ahead"],
+    [pct(lgb.wape), "daily error with LightGBM (WAPE)"],
+    [Math.round(100 * cut) + "%", "less error than the planner's average"],
+    [pct(W["LightGBM"].wape), "error on weekly store totals"],
+  ].map(([b, s]) => `<div class="kpi"><b>${b}</b><span>${s}</span></div>`).join("");
+
+  // ---------- findings ----------
+  $("#findings").innerHTML = [
+    [`${pct(plan.wape)} → ${pct(lgb.wape)}`, `One LightGBM model for all stores cuts the daily forecast error by ${Math.round(100 * cut)}% compared with the planner's 12-week weekday average, and by ${Math.round(100 * (1 - lgb.wape / naive.wape))}% compared with copying last year.`],
+    [`${pct(plan.off15, 0)} → ${pct(lgb.off15, 0)}`, `of store-days are off by more than 15%, the point where a roster built on the forecast is clearly wrong. On weekly store totals, the level rosters are planned at, the error is ${pct(W["LightGBM"].wape)}.`],
+    [`+${lift.sales_lift_pct.toFixed(0)}%`, `sales on a promotion day, like for like, but only +${lift.customer_lift_pct.toFixed(0)}% more customers: promotions grow the basket as much as the footfall. Any forecast that ignores the promotion calendar fails, which is why exponential smoothing (${pct(etsM.wape)}) loses even to the simple planner average.`],
+    [`−${compDrop.toFixed(0)}%`, `sales, lasting at least six months, when a competitor opens nearby (compared with the rest of the chain over the same weeks). Openings are usually known in advance, so they belong in the forecast and in the store's targets.`],
+  ].map(([b, p]) => `<div class="finding"><b>${b}</b><p>${p}</p></div>`).join("");
+
+  // ---------- weekday x promo ----------
+  (function weekday() {
+    const R = DATA.gold_weekday, Wd = 520, H = 250, L = 48, B = 26, T = 10;
+    const max = niceMax(Math.max(...R.map(r => r.avg_sales)), 2000), y = v => T + (H - T - B) * (1 - v / max);
+    const s = svg(Wd, H), gw = (Wd - L) / 7, bw = gw / 2 - 6;
+    for (let v = 0; v <= max; v += 2000) { el("line", { x1: L, x2: Wd, y1: y(v), y2: y(v), stroke: "#eef2f6" }, s); el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", class: "tick" }, s, "€" + v / 1000 + "k"); }
+    for (let d = 1; d <= 7; d++) {
+      const gx = L + (d - 1) * gw + 4;
+      el("text", { x: gx + gw / 2 - 4, y: H - 8, "text-anchor": "middle", class: "tick" }, s, dayName[d]);
+      [0, 1].forEach(p => {
+        const r = R.find(r => r.dow === d && r.promo === p); if (!r) return;
+        const x = gx + p * (bw + 4) + (d >= 6 ? bw / 2 + 2 : 0), h = H - B - y(r.avg_sales);
+        const g = el("g", {}, s);
+        el("rect", { x, y: y(r.avg_sales), width: bw, height: h, rx: 3, fill: p ? "var(--s2)" : "var(--s1)" }, g);
+        bindTip(g, `<b>${dayName[d]} · ${p ? "promotion" : "no promotion"}</b><br>${eur(r.avg_sales)} average per open store<br>${fmt(r.store_days)} store-days`);
+      });
+    }
+    $("#weekday").appendChild(s);
+  })();
+
+  // ---------- promo lift by format ----------
+  (function promoLift() {
+    const R = DATA.gold_promo_lift.filter(r => r.store_type !== null), Wd = 520, labelW = 92, rowH = 46, barH = 14, H = R.length * rowH + 26;
+    const max = niceMax(Math.max(...R.map(r => r.sales_lift_pct)), 10), x = v => labelW + (Wd - labelW - 50) * v / max;
+    const s = svg(Wd, H);
+    for (let v = 0; v <= max; v += 10) { el("line", { x1: x(v), x2: x(v), y1: 0, y2: H - 22, stroke: "#eef2f6" }, s); el("text", { x: x(v), y: H - 6, "text-anchor": "middle", class: "tick" }, s, "+" + v + "%"); }
+    const fmtType = DATA.gold_store_types;
+    R.forEach((r, i) => {
+      const y0 = i * rowH + 6, st = fmtType.find(t => t.store_type === r.store_type);
+      el("text", { x: labelW - 10, y: y0 + barH + 3, "text-anchor": "end", class: "lbl" }, s, "Format " + r.store_type.toUpperCase());
+      el("text", { x: labelW - 10, y: y0 + barH + 17, "text-anchor": "end", class: "lbl-muted" }, s, st.stores + " stores");
+      el("rect", { x: labelW, y: y0, width: x(r.sales_lift_pct) - labelW, height: barH, rx: 3, fill: "var(--s2)" }, s);
+      el("rect", { x: labelW, y: y0 + barH + 3, width: x(r.customer_lift_pct) - labelW, height: barH, rx: 3, fill: "var(--s1)" }, s);
+      el("text", { x: x(r.sales_lift_pct) + 5, y: y0 + barH - 2, class: "lbl-muted" }, s, "+" + r.sales_lift_pct.toFixed(0) + "%");
+      el("text", { x: x(r.customer_lift_pct) + 5, y: y0 + 2 * barH + 1, class: "lbl-muted" }, s, "+" + r.customer_lift_pct.toFixed(0) + "%");
+      const hit = el("rect", { x: 0, y: y0 - 4, width: Wd, height: rowH - 4, fill: "transparent" }, s);
+      bindTip(hit, `<b>Format ${r.store_type.toUpperCase()}</b> · ${st.stores} stores<br>Sales +${r.sales_lift_pct}% · customers +${r.customer_lift_pct}%<br>Average basket €${st.avg_basket} · ${eur(st.avg_daily_sales)} a day`);
+    });
+    $("#promoLift").appendChild(s);
+  })();
+
+  // ---------- competitor event ----------
+  (function compEvent() {
+    const R = comp, Wd = 520, H = 250, L = 44, Rr = 16, T = 14, B = 34;
+    const lo = 85, hi = 105, x = i => L + (Wd - L - Rr) * i / (R.length - 1), y = v => T + (H - T - B) * (hi - v) / (hi - lo);
+    const s = svg(Wd, H);
+    for (let v = lo; v <= hi; v += 5) { el("line", { x1: L, x2: Wd - Rr, y1: y(v), y2: y(v), stroke: v === 100 ? "#cbd5e1" : "#eef2f6" }, s); el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", class: "tick" }, s, v); }
+    const zi = R.findIndex(r => r.period === 0);
+    el("line", { x1: (x(zi) + x(zi - 1)) / 2, x2: (x(zi) + x(zi - 1)) / 2, y1: T, y2: H - B, stroke: "#94a3b8", "stroke-dasharray": "4 4" }, s);
+    el("text", { x: (x(zi) + x(zi - 1)) / 2 + 6, y: T + 10, class: "lbl-muted" }, s, "competitor opens");
+    el("polyline", { points: R.map((r, i) => x(i) + "," + y(r.index_vs_before)).join(" "), fill: "none", stroke: "var(--s1)", "stroke-width": 2.5, "stroke-linejoin": "round" }, s);
+    R.forEach((r, i) => {
+      const g = el("g", {}, s);
+      el("circle", { cx: x(i), cy: y(r.index_vs_before), r: 4.5, fill: "var(--s1)", stroke: "#fff", "stroke-width": 2 }, g);
+      const lab = r.period < 0 ? `${-r.period * 4} weeks before` : `weeks ${r.period * 4 + 1}–${r.period * 4 + 4} after`;
+      el("text", { x: x(i), y: H - 16, "text-anchor": "middle", class: "tick" }, s, r.period < 0 ? "−" + (-r.period * 4) + "w" : "+" + (r.period * 4 + 4) + "w");
+      el("rect", { x: x(i) - 20, y: 0, width: 40, height: H - B, fill: "transparent" }, g);
+      bindTip(g, `<b>${lab}</b><br>Index ${r.index_vs_before} (before = 100)<br>${r.stores} stores`);
+    });
+    el("text", { x: L + (Wd - L - Rr) / 2, y: H - 1, "text-anchor": "middle", class: "lbl-muted" }, s, "4-week periods around the opening");
+    $("#compSub").textContent = `${comp[0].stores} stores that gained a nearby competitor during the data · sales vs the rest of the chain, indexed to the 8 weeks before = 100`;
+    $("#compEvent").appendChild(s);
+  })();
+
+  // ---------- weekly chain sales ----------
+  (function weekly() {
+    const R = DATA.gold_weekly, Wd = 520, H = 250, L = 52, Rr = 10, T = 10, B = 26;
+    const max = niceMax(Math.max(...R.map(r => r.sales)), 20e6), x = i => L + (Wd - L - Rr) * i / (R.length - 1), y = v => T + (H - T - B) * (1 - v / max);
+    const s = svg(Wd, H);
+    for (let v = 0; v <= max; v += 20e6) { el("line", { x1: L, x2: Wd - Rr, y1: y(v), y2: y(v), stroke: "#eef2f6" }, s); el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", class: "tick" }, s, "€" + v / 1e6 + "M"); }
+    R.forEach((r, i) => { if (r.week_start.slice(5, 7) === "01" && +r.week_start.slice(8) <= 7) el("text", { x: x(i), y: H - 8, "text-anchor": "middle", class: "tick" }, s, r.week_start.slice(0, 4)); });
+    el("polyline", { points: R.map((r, i) => x(i) + "," + y(r.sales)).join(" "), fill: "none", stroke: "var(--s2)", "stroke-width": 1.8, "stroke-linejoin": "round" }, s);
+    const dot = el("circle", { r: 4, fill: "var(--s2)", stroke: "#fff", "stroke-width": 2, opacity: 0 }, s);
+    const step = (Wd - L - Rr) / (R.length - 1);
+    R.forEach((r, i) => {
+      const hit = el("rect", { x: x(i) - step / 2, y: 0, width: step, height: H - B, fill: "transparent" }, s);
+      hit.addEventListener("mousemove", e => { dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(r.sales)); dot.setAttribute("opacity", 1); showTip(e, `<b>Week of ${dLong(r.week_start)}</b><br>${eur(r.sales)} across ${r.stores} stores`); });
+      hit.addEventListener("mouseleave", () => { dot.setAttribute("opacity", 0); hideTip(); });
+    });
+    $("#weeklySub").textContent = `${R[0].stores} stores with a complete history · the alternating peaks are the two-week promotion cycle, the spikes are Christmas`;
+    $("#weeklyChain").appendChild(s);
+  })();
+
+  // ---------- ladder cards ----------
+  $("#ladder").innerHTML = MODELS.map((m, i) => {
+    const r = M[m], best = m === "LightGBM";
+    return `<div class="rung${best ? " best" : ""}"><span class="step">Step ${i + 1}</span><h3>${m}</h3><b>${pct(r.wape)}</b><span>daily error (WAPE)</span></div>`;
+  }).join("");
+
+  // ---------- error per fold ----------
+  (function folds() {
+    const F = DATA.folds, R = DATA.by_fold, Wd = 520, H = 260, L = 40, B = 40, T = 10;
+    const max = niceMax(Math.max(...R.map(r => r.wape)) * 100, 5), y = v => T + (H - T - B) * (1 - v / max);
+    const s = svg(Wd, H), gw = (Wd - L) / F.length, bw = (gw - 18) / MODELS.length;
+    for (let v = 0; v <= max; v += 5) { el("line", { x1: L, x2: Wd, y1: y(v), y2: y(v), stroke: "#eef2f6" }, s); el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", class: "tick" }, s, v + "%"); }
+    F.forEach((f, fi) => {
+      const gx = L + fi * gw + 9;
+      el("text", { x: gx + (gw - 18) / 2, y: H - 22, "text-anchor": "middle", class: "lbl", "font-size": 11 }, s, f.fold);
+      el("text", { x: gx + (gw - 18) / 2, y: H - 8, "text-anchor": "middle", class: "tick" }, s, dShort(f.start) + " – " + dShort(f.end));
+      MODELS.forEach((m, mi) => {
+        const r = R.find(r => r.fold === f.fold && r.model === m), v = r.wape * 100, g = el("g", {}, s);
+        el("rect", { x: gx + mi * bw + 1, y: y(v), width: bw - 2, height: H - B - y(v), rx: 2, fill: COL[m] }, g);
+        bindTip(g, `<b>${esc(f.fold)} · ${m}</b><br>WAPE ${v.toFixed(1)}% · RMSPE ${(r.rmspe * 100).toFixed(1)}%<br>Bias ${(r.bias * 100).toFixed(1)}%<br>${fmt(r.store_days)} store-days, ${fmt(r.stores)} stores`);
+      });
+    });
+    $("#foldLegend").innerHTML = MODELS.map(m => `<span><i style="background:${COL[m]}"></i>${m}</span>`).join("");
+    $("#foldChart").appendChild(s);
+  })();
+
+  $("#scoreTable").innerHTML = `<tr><th>Method</th><th>WAPE</th><th>RMSPE</th><th>Bias</th><th>Off 15%+</th><th>Weekly</th></tr>` +
+    MODELS.map(m => { const r = M[m]; return `<tr${m === "LightGBM" ? ' class="hl"' : ""}><td>${m}</td><td>${pct(r.wape)}</td><td>${pct(r.rmspe)}</td><td>${(r.bias >= 0 ? "+" : "") + pct(r.bias)}</td><td>${pct(r.off15, 0)}</td><td>${pct(W[m].wape)}</td></tr>`; }).join("");
+
+  // ---------- explorer ----------
+  (function explorer() {
+    const EX = DATA.examples, F = DATA.folds.map(f => f.fold);
+    let si = 0, fi = F.length - 1;
+    $("#storeBtns").innerHTML = EX.map((e, i) => `<button type="button" class="${i ? "" : "on"}" data-i="${i}">${e.hardest ? "Hardest · " : "Format " + e.store_type.toUpperCase() + " · "}store ${e.store_id}</button>`).join("");
+    $("#foldBtns").innerHTML = F.map((f, i) => `<button type="button" class="${i === fi ? "on" : ""}" data-i="${i}">${f}</button>`).join("");
+    const draw = () => {
+      const e = EX[si], rows = e.rows.filter(r => r.fold === F[fi]), box = $("#explorer");
+      box.innerHTML = "";
+      if (!rows.length) { box.innerHTML = `<p class="note">This store has no data in the ${esc(F[fi])} window (it is one of the 180 stores missing from Jul to Dec 2014).</p>`; $("#explorerNote").textContent = ""; return; }
+      const Wd = 1000, H = 300, L = 56, Rr = 12, T = 12, B = 30;
+      const t0 = new Date(rows[0].sales_date + "T00:00:00"), days = r => (new Date(r.sales_date + "T00:00:00") - t0) / 864e5;
+      const span = days(rows[rows.length - 1]) || 1, x = r => L + (Wd - L - Rr) * days(r) / span;
+      const max = niceMax(Math.max(...rows.map(r => Math.max(r.actual, r.p90, r.LightGBM))), 2500), y = v => T + (H - T - B) * (1 - v / max);
+      const s = svg(Wd, H);
+      for (let v = 0; v <= max; v += 2500) { el("line", { x1: L, x2: Wd - Rr, y1: y(v), y2: y(v), stroke: "#eef2f6" }, s); el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", class: "tick" }, s, "€" + (v / 1000).toFixed(1).replace(".0", "") + "k"); }
+      rows.forEach(r => { if (r.promo) el("rect", { x: x(r) - 6, y: T, width: 12, height: H - T - B, fill: "#f1f5f9" }, s); });
+      // the band and lines break across days the store is closed (Sundays, holidays)
+      const runs = []; let cur = [];
+      rows.forEach((r, i) => { if (i && days(r) - days(rows[i - 1]) > 1) { runs.push(cur); cur = []; } cur.push(r); }); runs.push(cur);
+      runs.forEach(run => {
+        el("path", { d: "M" + run.map(r => x(r) + "," + y(r.p90)).join("L") + "L" + [...run].reverse().map(r => x(r) + "," + y(r.p10)).join("L") + "Z", fill: "rgba(8,145,178,.16)" }, s);
+        el("polyline", { points: run.map(r => x(r) + "," + y(r["Planner average"])).join(" "), fill: "none", stroke: "var(--s3)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }, s);
+        el("polyline", { points: run.map(r => x(r) + "," + y(r.LightGBM)).join(" "), fill: "none", stroke: "var(--s1)", "stroke-width": 2.2 }, s);
+        el("polyline", { points: run.map(r => x(r) + "," + y(r.actual)).join(" "), fill: "none", stroke: "var(--ink)", "stroke-width": 1.6 }, s);
+      });
+      rows.forEach(r => { if (new Date(r.sales_date + "T00:00:00").getDay() === 1) el("text", { x: x(r), y: H - 10, "text-anchor": "middle", class: "tick" }, s, dShort(r.sales_date)); });
+      const step = (Wd - L - Rr) / span;
+      rows.forEach(r => {
+        const hit = el("rect", { x: x(r) - step / 2, y: 0, width: step, height: H - B, fill: "transparent" }, s);
+        const err = (r.LightGBM - r.actual) / r.actual;
+        bindTip(hit, `<b>${new Date(r.sales_date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</b>${r.promo ? " · promotion" : ""}<br>Actual ${eur(r.actual)}<br>LightGBM ${eur(r.LightGBM)} (${err >= 0 ? "+" : ""}${(err * 100).toFixed(0)}%)<br>80% range ${eur(r.p10)} – ${eur(r.p90)}<br>Planner average ${eur(r["Planner average"])}`);
+      });
+      box.appendChild(s);
+      const a = rows.reduce((t, r) => t + r.actual, 0), wl = rows.reduce((t, r) => t + Math.abs(r.LightGBM - r.actual), 0) / a, wp = rows.reduce((t, r) => t + Math.abs(r["Planner average"] - r.actual), 0) / a;
+      $("#explorerNote").textContent = `Store ${e.store_id} (format ${e.store_type.toUpperCase()}), ${F[fi]}: LightGBM error ${pct(wl)}, planner average ${pct(wp)}. Shaded columns are promotion days; gaps are days the store was closed.`;
+    };
+    const pick = (box, fn) => box.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; box.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); fn(+b.dataset.i); draw(); });
+    pick($("#storeBtns"), i => si = i); pick($("#foldBtns"), i => fi = i);
+    draw();
+  })();
+
+  // ---------- paired horizontal bars ----------
+  function pairBars(target, rows, labelW, valA, valB, tipFn) {
+    const Wd = 520, rowH = 40, barH = 12, H = rows.length * rowH + 24;
+    const max = niceMax(Math.max(...rows.map(r => Math.max(valA(r), valB(r)))) * 100, 5), x = v => labelW + (Wd - labelW - 46) * v / max;
+    const s = svg(Wd, H);
+    for (let v = 0; v <= max; v += 5) { el("line", { x1: x(v), x2: x(v), y1: 0, y2: H - 20, stroke: "#eef2f6" }, s); el("text", { x: x(v), y: H - 5, "text-anchor": "middle", class: "tick" }, s, v + "%"); }
+    rows.forEach((r, i) => {
+      const y0 = i * rowH + 6;
+      const words = r.label.split(" "); let l1 = "", l2 = "";
+      words.forEach(w => { if ((l1 + " " + w).trim().length <= 22 && !l2) l1 = (l1 + " " + w).trim(); else l2 = (l2 + " " + w).trim(); });
+      el("text", { x: labelW - 10, y: y0 + (l2 ? 9 : 16), "text-anchor": "end", class: "lbl" }, s, l1);
+      if (l2) el("text", { x: labelW - 10, y: y0 + 23, "text-anchor": "end", class: "lbl" }, s, l2);
+      [[valA(r), "var(--s3)", 0], [valB(r), "var(--s1)", barH + 2]].forEach(([v, c, dy]) => {
+        el("rect", { x: labelW, y: y0 + dy, width: Math.max(1, x(v * 100) - labelW), height: barH, rx: 3, fill: c }, s);
+        el("text", { x: x(v * 100) + 5, y: y0 + dy + barH - 2, class: "lbl-muted" }, s, (v * 100).toFixed(1) + "%");
+      });
+      const hit = el("rect", { x: 0, y: y0 - 4, width: Wd, height: rowH - 4, fill: "transparent" }, s);
+      bindTip(hit, tipFn(r));
+    });
+    $(target).appendChild(s);
+  }
+  pairBars("#segChart", DATA.segments.map(r => ({ ...r, label: r.segment })), 170, r => r["Planner average"], r => r.LightGBM,
+    r => `<b>${esc(r.segment)}</b><br>${fmt(r.store_days)} store-days<br>Planner average ${pct(r["Planner average"])}<br>LightGBM ${pct(r.LightGBM)}`);
+
+  // ---------- store histogram ----------
+  (function hist() {
+    const R = DATA.store_hist, Wd = 520, H = 250, L = 40, B = 40, T = 10;
+    const max = niceMax(Math.max(...R.map(r => Math.max(r.LightGBM, r["Planner average"]))), 50), y = v => T + (H - T - B) * (1 - v / max);
+    const s = svg(Wd, H), gw = (Wd - L) / R.length, bw = gw / 2 - 4;
+    for (let v = 0; v <= max; v += 50) { el("line", { x1: L, x2: Wd, y1: y(v), y2: y(v), stroke: "#eef2f6" }, s); el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", class: "tick" }, s, v); }
+    R.forEach((r, i) => {
+      const gx = L + i * gw + 4, g = el("g", {}, s);
+      el("rect", { x: gx, y: y(r["Planner average"]), width: bw, height: H - B - y(r["Planner average"]), rx: 2, fill: "var(--s3)" }, g);
+      el("rect", { x: gx + bw + 1, y: y(r.LightGBM), width: bw, height: H - B - y(r.LightGBM), rx: 2, fill: "var(--s1)" }, g);
+      el("text", { x: gx + bw, y: H - 24, "text-anchor": "middle", class: "tick" }, s, r.bin);
+      el("rect", { x: gx - 4, y: 0, width: gw, height: H - B, fill: "transparent" }, g);
+      bindTip(g, `<b>Store error ${r.bin}</b><br>LightGBM: ${r.LightGBM} stores<br>Planner average: ${r["Planner average"]} stores`);
+    });
+    el("text", { x: L + (Wd - L) / 2, y: H - 4, "text-anchor": "middle", class: "lbl-muted" }, s, "Store's error over the 6 weeks (WAPE)");
+    const u = DATA.store_share_under10, last = DATA.folds[DATA.folds.length - 1];
+    $("#histSub").textContent = `Stores by forecast error, ${last.fold} window · ${pct(u.LightGBM, 0)} of stores under 10% error with LightGBM vs ${pct(u["Planner average"], 0)} with the planner average`;
+    $("#storeHist").appendChild(s);
+  })();
+
+  // ---------- impact ----------
+  (function impact() {
+    const R = DATA.impact_groups, Wd = 520, labelW = 170, rowH = 32, barH = 16, H = R.length * rowH + 6;
+    const max = Math.max(...R.map(r => r.share)), x = v => labelW + (Wd - labelW - 50) * v / max;
+    const s = svg(Wd, H);
+    R.forEach((r, i) => {
+      const y0 = i * rowH + 6;
+      el("text", { x: labelW - 10, y: y0 + barH - 3, "text-anchor": "end", class: "lbl" }, s, r.group);
+      el("rect", { x: labelW, y: y0, width: Math.max(2, x(r.share) - labelW), height: barH, rx: 3, fill: "var(--s1)" }, s);
+      el("text", { x: x(r.share) + 6, y: y0 + barH - 3, class: "lbl-muted" }, s, pct(r.share, 0));
+    });
+    $("#impact").appendChild(s);
+  })();
+
+  // ---------- coverage ----------
+  (function coverage() {
+    const R = DATA.coverage, Wd = 520, labelW = 130, rowH = 40, barH = 18, H = R.length * rowH + 30;
+    const x = v => labelW + (Wd - labelW - 20) * v;
+    const s = svg(Wd, H);
+    [0, .2, .4, .6, .8, 1].forEach(v => { el("line", { x1: x(v), x2: x(v), y1: 0, y2: H - 22, stroke: v === .8 ? "#94a3b8" : "#eef2f6", "stroke-dasharray": v === .8 ? "4 3" : "" }, s); el("text", { x: x(v), y: H - 6, "text-anchor": "middle", class: "tick" }, s, v * 100 + "%"); });
+    R.forEach((r, i) => {
+      const y0 = i * rowH + 8, g = el("g", {}, s);
+      el("text", { x: labelW - 10, y: y0 + barH - 4, "text-anchor": "end", class: "lbl" }, s, r.fold);
+      el("rect", { x: labelW, y: y0, width: x(r.coverage) - labelW, height: barH, rx: 3, fill: "var(--s2)" }, g);
+      el("text", { x: x(r.coverage) - 6, y: y0 + barH - 5, "text-anchor": "end", "font-size": 11, "font-weight": 700, fill: "#fff" }, g, pct(r.coverage, 0));
+      bindTip(g, `<b>${esc(r.fold)}</b><br>${pct(r.coverage)} of actual values inside the 80% range<br>Average range width ±${pct(r.avg_width_pct / 2, 0)} around the forecast`);
+    });
+    $("#coverage").appendChild(s);
+    const c = DATA.coverage_all;
+    $("#coverageNote").textContent = `Across all windows, ${pct(c, 0)} of actual values fell inside the 80% range. ${c < .75 ? "The range is somewhat too narrow, so for safety-stock decisions it should be widened (for example by recalibrating it on a recent window)." : c > .85 ? "The range is a little wider than it needs to be." : "Close to the target, so the range can be used for buffer staffing and safety stock."}`;
+  })();
+
+  // ---------- actions ----------
+  $("#actions").innerHTML = [
+    ["p1", "Roster from the forecast, not last year", `Use the weekly store forecast (${pct(W["LightGBM"].wape)} error) as the starting point for staff hours, with the 80% range deciding how many flexible shifts to hold back.`],
+    ["p1", "Plan promotions with their real lift", `A promotion day sells about ${lift.sales_lift_pct.toFixed(0)}% more, mostly through bigger baskets. Staff the tills and fill the shelves for that, store by store, rather than for a normal day.`],
+    ["p2", "Flag the hard days for review", `The weeks around a refurbishment closure carry errors of ${pct(Math.min(segBy["First week after a refurbishment"], segBy["Week before a refurbishment"]), 0)}–${pct(Math.max(segBy["First week after a refurbishment"], segBy["Week before a refurbishment"]), 0)}, more than twice the average. Send those days to store managers for a manual check instead of trusting any model blindly.`],
+    ["p2", "Reset targets when a competitor opens", `Expect about ${compDrop.toFixed(0)}% lower sales for months after a nearby opening. Adjust the store's targets and the forecast at once, instead of waiting for it to show up in the data.`],
+    ["p3", "Monitor accuracy every week", `Rerun the pipeline weekly, track WAPE and bias by store, and alert when a store drifts. The same backtest code becomes the monitoring job.`],
+    ["p3", "Next model steps", `Add weather and local events, recalibrate the range on recent weeks, and test a blend of LightGBM with the planner average for stores with short histories.`],
+  ].map(([p, h, t]) => `<div class="action"><span class="tag ${p}">${{ p1: "Priority 1", p2: "Priority 2", p3: "Priority 3" }[p]}</span><h3>${h}</h3><p>${t}</p></div>`).join("");
+
+  $("#silverList").innerHTML = [
+    "Typed columns and readable holiday labels",
+    "Promo2 start date from ISO week, competitor opening date from month and year",
+    `${fmt(K.zero_sale_days)} recording errors (open with zero or near-zero sales) flagged, never trained on or scored`,
+    "180 stores have no data from Jul to Dec 2014: kept as gaps, not filled",
+  ].map(t => `<li>${t}</li>`).join("");
+})();
+</script>
+</body>
+</html>
