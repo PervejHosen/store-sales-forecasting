@@ -4,7 +4,7 @@
 
 Store managers plan staff and stock about six weeks ahead, so forecast errors become empty shelves or queues at the till. This project builds a SQL feature pipeline on 1,017,209 store-days of real sales from Rossmann, a European drugstore chain, then tests four forecasting methods the way they would be used for real: six weeks at a time, using only data from before each window.
 
-**[▶ View the interactive report](https://pervejhosen.github.io/projects/store-sales-forecasting/)**
+**[▶ View the interactive report](https://pervejhosen.com/projects/store-sales-forecasting/)**
 
 ![Error by method in each test window](docs/backtest.png)
 
@@ -76,4 +76,4 @@ Rossmann Store Sales, Kaggle competition, 2015. https://www.kaggle.com/competiti
 
 ---
 
-Built by **[Pervej Hosen](https://pervejhosen.github.io)** · Sr. Power BI Developer & Analytics Engineer
+Built by **[Pervej Hosen](https://pervejhosen.com)** · Sr. Power BI Developer & Analytics Engineer

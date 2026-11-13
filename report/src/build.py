@@ -20,8 +20,8 @@ head = """<!DOCTYPE html>
 css = (H / "_css.html").read_text().replace("</style>", (H / "_extra.css").read_text() + "</style>")
 page = head + css + "\n</head>\n" + (H / "_body.html").read_text() + (H / "_script.html").read_text()
 repo = "https://github.com/PervejHosen/store-sales-forecasting"
-(REPORT / "index.html").write_text(page.replace("__REPO__", repo).replace("__HOME__", "https://pervejhosen.github.io/")
-                              .replace("__FAVICON__", "https://pervejhosen.github.io/favicon.svg"))
+(REPORT / "index.html").write_text(page.replace("__REPO__", repo).replace("__HOME__", "https://pervejhosen.com/")
+                              .replace("__FAVICON__", "https://pervejhosen.com/favicon.svg"))
 OUT.mkdir(exist_ok=True)
 (OUT / "site.html").write_text(page.replace("__REPO__", repo).replace("__HOME__", "../../").replace("__FAVICON__", "../../favicon.svg"))
 print("built report/index.html (and output/site.html for the portfolio copy)")

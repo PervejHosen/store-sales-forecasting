@@ -6,13 +6,13 @@
 .rung h3 { font-size: 1rem; margin: 2px 0 6px; }
 .rung b { display: block; font-size: 1.6rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
 .rung > span:last-child { color: var(--muted); font-size: .84rem; }
-.rung.best { border: 2px solid var(--accent); }
+.rung.best { border: 2px solid var(--accent); background: #E9F0EA; }
 .rung.best b { color: var(--accent); }
-tr.hl td { font-weight: 700; color: var(--ink); background: #ecfeff; }
+tr.hl td { font-weight: 700; color: var(--ink); background: #E9E0CE; }
 /* explorer */
 .explorer-bar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
 .seg-btns { display: flex; flex-wrap: wrap; gap: 6px; }
-.seg-btns button { font: inherit; font-size: .82rem; font-weight: 600; color: var(--muted); background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.seg-btns button { font: inherit; font-size: .82rem; font-weight: 600; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
 .seg-btns button:hover { border-color: var(--accent); color: var(--ink); }
 .seg-btns button.on { background: var(--navy); border-color: var(--navy); color: #fff; }
 .scroll #explorer svg, #explorer svg { min-width: 760px; }
